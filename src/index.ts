@@ -1,16 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { telegramBotTable as telegramBot } from './schema';
-import { WorkerEntrypoint } from 'cloudflare:workers';
 
 const WOKRER_URL = 'https://ajou-notice.asitis.workers.dev';
-
-export interface Env {
-	DB: D1Database;
-	NOTICE_WORKER: Service<WorkerEntrypoint>;
-	TELEGRAM_BOT_TOKEN: string;
-}
-
 interface Update {
 	update_id: number;
 	message?: Message;
