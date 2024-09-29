@@ -21,6 +21,7 @@ interface Message {
 	from: User;
 	chat: Chat;
 	text?: string;
+	reply_to_message?: Message;
 }
 
 interface User {
@@ -45,10 +46,11 @@ interface Notice {
 
 export default {
 	async fetch(request, env, ctx): Promise<Response> {
-		const sendMessage = async (chatId: number, message: string) => {
+		const sendMessage = async (chatId: number, message: string, options?: { forceReply?: boolean }) => {
 			const params = {
 				chat_id: chatId,
 				text: message,
+				...(options?.forceReply && { reply_markup: { force_reply: true } }),
 			};
 
 			await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -61,7 +63,7 @@ export default {
 		};
 
 		const db = drizzle(env.DB);
-		const { pathname, searchParams } = new URL(request.url);
+		const { pathname } = new URL(request.url);
 
 		if (pathname === '/api/webhook') {
 			if (request.method === 'OPTIONS') {
@@ -76,7 +78,40 @@ export default {
 			} else if (request.method === 'POST') {
 				const { message }: Update = await request.json();
 
-				if (message && message.text) {
+				if (message && message.reply_to_message) {
+					const question = message.reply_to_message.text!.trim();
+					const answer = message.text!.trim();
+
+					if (question.startsWith('⚙️')) {
+						const info = await db.select().from(telegramBot).where(eq(telegramBot.chatId, message.from.id)).get();
+						if (!info) {
+							await sendMessage(message.chat.id, '🚫 현재 공지사항 알림을 받지 않고 있습니다.');
+						} else {
+							const queryParams = new URLSearchParams(info.queryParams);
+							if (question.includes('카테고리')) {
+								queryParams.set('category', answer);
+							} else if (question.includes('부서')) {
+								queryParams.set('department', answer);
+							} else if (question.includes('키워드')) {
+								queryParams.set('search', answer);
+							}
+
+							try {
+								await db.update(telegramBot).set({ queryParams: queryParams.toString() }).where(eq(telegramBot.chatId, message.from.id));
+								await sendMessage(message.chat.id, '🔔 공지사항 알림 필터링 조건을 변경했습니다.');
+							} catch (error) {
+								await sendMessage(message.chat.id, '❗ 오류가 발생했습니다');
+								return new Response('Internal Server Error', {
+									status: 500,
+								});
+							}
+						}
+					}
+
+					return new Response('OK', {
+						status: 200,
+					});
+				} else if (message && message.text) {
 					const command = message.text.trim();
 
 					if (command.startsWith('/start')) {
@@ -85,21 +120,15 @@ export default {
 							'👋 안녕하세요! 아주대학교 공지사항 알림봇입니다. 알림을 받고 싶으시다면 명령어를 확인해주세요.'
 						);
 					} else if (command.startsWith('/subscribe')) {
-						const queryParams = new URLSearchParams();
-
-						// if (category) queryParams.append('category', category);
-						// if (department) queryParams.append('department', department);
-						// if (search) queryParams.append('search', search);
-
 						const chatId = message.from.id;
-						const notices: Notice[] = await env.NOTICE_WORKER.fetch(`${WOKRER_URL}/api/notices?${queryParams.toString()}`, {
+						const notices: Notice[] = await env.NOTICE_WORKER.fetch(`${WOKRER_URL}/api/notices`, {
 							method: 'GET',
 						}).then((response) => response.json());
 
 						const newRecord = {
 							chatId,
 							latestId: notices[0]?.id ?? 0,
-							queryParams: queryParams.toString(),
+							queryParams: '',
 						};
 
 						try {
@@ -119,8 +148,8 @@ export default {
 					} else if (command.startsWith('/unsubscribe')) {
 						try {
 							const result = await db.delete(telegramBot).where(eq(telegramBot.chatId, message.from.id));
-							if (result.meta.rows_read === 0) {
-								await sendMessage(message.chat.id, '🚫 이미 알림을 구독하지 않고 있습니다.');
+							if (result.meta.rows_written === 0) {
+								await sendMessage(message.chat.id, '🚫 현재 공지사항 알림을 받지 않고 있습니다.');
 							} else {
 								await sendMessage(message.chat.id, '🚫 더이상 공지사항 알림을 받지 않습니다.');
 							}
@@ -129,12 +158,24 @@ export default {
 								status: 500,
 							});
 						}
+					} else if (command.startsWith('/category')) {
+						await sendMessage(message.chat.id, '⚙️ 카테고리 필터를 등록합니다. 알림을 받고 싶은 공지 분류를 입력해주세요.', {
+							forceReply: true,
+						});
+					} else if (command.startsWith('/department')) {
+						await sendMessage(message.chat.id, '⚙️ 공지부서 필터를 등록합니다. 알림을 받고 싶은 공지부서를 입력해주세요.', {
+							forceReply: true,
+						});
+					} else if (command.startsWith('/keyword')) {
+						await sendMessage(message.chat.id, '⚙️ 키워드 필터를 등록합니다. 알림을 받고 싶은 공지 키워드를 입력해주세요.', {
+							forceReply: true,
+						});
 					}
-
-					return new Response('OK', {
-						status: 200,
-					});
 				}
+
+				return new Response('OK', {
+					status: 200,
+				});
 			} else {
 				return new Response('Method Not Allowed', {
 					status: 405,
