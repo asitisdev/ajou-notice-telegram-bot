@@ -217,7 +217,7 @@ export default {
 			const newNotices = notices.filter((notice) => notice.id > bot.latestId).reverse();
 
 			for (const notice of newNotices) {
-				sendMessage(bot.chatId, `${notice.title}\n${notice.url}`);
+				await sendMessage(bot.chatId, `${notice.title}\n${notice.url}`);
 			}
 		}
 	},
