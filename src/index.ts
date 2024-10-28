@@ -32,6 +32,7 @@ interface Notice {
 	department: string;
 	title: string;
 	content: string;
+	summary: string;
 	url: string;
 	date: string;
 }
@@ -42,6 +43,7 @@ export default {
 			const params = {
 				chat_id: chatId,
 				text: message,
+				parse_mode: 'Markdown',
 				...(options?.forceReply && { reply_markup: { force_reply: true } }),
 			};
 
@@ -188,6 +190,7 @@ export default {
 			const params = {
 				chat_id: chatId,
 				text: message,
+				parse_mode: 'Markdown',
 			};
 
 			await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
@@ -217,7 +220,7 @@ export default {
 			const newNotices = notices.filter((notice) => notice.id > bot.latestId).reverse();
 
 			for (const notice of newNotices) {
-				await sendMessage(bot.chatId, `${notice.title}\n${notice.url}`);
+				await sendMessage(bot.chatId, `${notice.title} [🔗](${notice.url})\n\n${notice.summary}`);
 			}
 		}
 	},
